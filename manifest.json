@@ -1,0 +1,188 @@
+{
+  "name": "cortex-plugin-email",
+  "version": "1.0.0",
+  "description": "Read, draft, send, organize emails via Gmail API",
+  "kind": "esm",
+  "entryPoint": "mod.ts",
+  "runtime": "deno",
+  "author": "CortexPrism",
+  "license": "MIT",
+  "repository": "https://github.com/CortexPrism/cortex-plugin-email",
+  "homepage": "",
+  "capabilities": [
+    "tools",
+    "network:fetch"
+  ],
+  "tools": [
+    {
+      "name": "email_list",
+      "description": "List emails",
+      "params": [
+        {
+          "name": "max_results",
+          "type": "number",
+          "description": "Maximum number of emails to return",
+          "required": false,
+          "default": 20
+        },
+        {
+          "name": "query",
+          "type": "string",
+          "description": "Gmail search query",
+          "required": false
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "description": "Gmail label to filter by",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "email_get",
+      "description": "Get a specific email by ID",
+      "params": [
+        {
+          "name": "email_id",
+          "type": "string",
+          "description": "The email ID to retrieve",
+          "required": true
+        },
+        {
+          "name": "format",
+          "type": "string",
+          "description": "Email format to return",
+          "required": false,
+          "enum": ["full", "metadata", "minimal"],
+          "default": "full"
+        }
+      ]
+    },
+    {
+      "name": "email_send",
+      "description": "Send an email",
+      "params": [
+        {
+          "name": "to",
+          "type": "string",
+          "description": "Recipient email address",
+          "required": true
+        },
+        {
+          "name": "subject",
+          "type": "string",
+          "description": "Email subject",
+          "required": true
+        },
+        {
+          "name": "body",
+          "type": "string",
+          "description": "Email body content",
+          "required": true
+        },
+        {
+          "name": "cc",
+          "type": "string",
+          "description": "CC recipients",
+          "required": false
+        },
+        {
+          "name": "bcc",
+          "type": "string",
+          "description": "BCC recipients",
+          "required": false
+        },
+        {
+          "name": "is_html",
+          "type": "boolean",
+          "description": "Whether body is HTML",
+          "required": false,
+          "default": false
+        }
+      ]
+    },
+    {
+      "name": "email_draft",
+      "description": "Create a draft email",
+      "params": [
+        {
+          "name": "to",
+          "type": "string",
+          "description": "Recipient email address",
+          "required": true
+        },
+        {
+          "name": "subject",
+          "type": "string",
+          "description": "Email subject",
+          "required": true
+        },
+        {
+          "name": "body",
+          "type": "string",
+          "description": "Email body content",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "email_summarize_thread",
+      "description": "Summarize an email thread",
+      "params": [
+        {
+          "name": "thread_id",
+          "type": "string",
+          "description": "The thread ID to summarize",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "email_extract_actions",
+      "description": "Extract action items from emails",
+      "params": [
+        {
+          "name": "email_ids",
+          "type": "string",
+          "description": "Comma-separated email IDs",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "ui": {
+    "section": "Gmail",
+    "fields": [
+      {
+        "key": "gmailClientId",
+        "label": "Gmail Client ID",
+        "type": "text",
+        "description": "Google Cloud OAuth 2.0 client ID",
+        "required": true
+      },
+      {
+        "key": "gmailClientSecret",
+        "label": "Gmail Client Secret",
+        "type": "secret",
+        "description": "Google Cloud OAuth 2.0 client secret",
+        "required": true
+      },
+      {
+        "key": "gmailRefreshToken",
+        "label": "Gmail Refresh Token",
+        "type": "secret",
+        "description": "Gmail API refresh token",
+        "required": true
+      }
+    ]
+  },
+  "dependencies": {},
+  "peerDependencies": {
+    "cortex": ">=1.0.0"
+  },
+  "aiDisclosure": {
+    "tools": ["Claude Code (Anthropic)"],
+    "humanReview": true
+  }
+}

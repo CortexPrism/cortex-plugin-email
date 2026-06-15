@@ -1,0 +1,28 @@
+{
+  "name": "cortex-plugin-email",
+  "version": "1.0.0",
+  "description": "Read, draft, send, organize emails via Gmail API",
+  "type": "module",
+  "main": "mod.ts",
+  "scripts": {
+    "dev": "deno run --watch --allow-all mod.ts",
+    "test": "deno test --allow-all test/**/*.test.ts",
+    "fmt": "deno fmt",
+    "fmt:check": "deno fmt --check",
+    "lint": "deno lint",
+    "validate": "deno check mod.ts && deno fmt --check && deno lint"
+  },
+  "keywords": ["cortex", "plugin", "cortex-plugin", "email", "gmail", "esm"],
+  "author": "CortexPrism",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/CortexPrism/cortex-plugin-email.git"
+  },
+  "dependencies": {
+    "@cortexprism/plugin-sdk": "^1.0.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

@@ -1,6 +1,6 @@
 {
   "name": "cortex-plugin-email",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Read, draft, send, organize emails via Gmail API",
   "kind": "esm",
   "entryPoint": "mod.ts",

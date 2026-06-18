@@ -1,6 +1,6 @@
 {
   "name": "cortex-plugin-email",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Read, draft, send, organize emails via Gmail API",
   "kind": "esm",
   "entryPoint": "mod.ts",
@@ -8,7 +8,7 @@
   "author": "CortexPrism",
   "license": "MIT",
   "repository": "https://github.com/CortexPrism/cortex-plugin-email",
-  "homepage": "",
+  "homepage": "https://github.com/CortexPrism/cortex-plugin-email",
   "capabilities": [
     "tools",
     "network:fetch"
@@ -54,7 +54,11 @@
           "type": "string",
           "description": "Email format to return",
           "required": false,
-          "enum": ["full", "metadata", "minimal"],
+          "enum": [
+            "full",
+            "metadata",
+            "minimal"
+          ],
           "default": "full"
         }
       ]
@@ -152,28 +156,32 @@
     }
   ],
   "ui": {
-    "section": "Gmail",
-    "fields": [
+    "settings": [
       {
-        "key": "gmailClientId",
-        "label": "Gmail Client ID",
-        "type": "text",
-        "description": "Google Cloud OAuth 2.0 client ID",
-        "required": true
-      },
-      {
-        "key": "gmailClientSecret",
-        "label": "Gmail Client Secret",
-        "type": "secret",
-        "description": "Google Cloud OAuth 2.0 client secret",
-        "required": true
-      },
-      {
-        "key": "gmailRefreshToken",
-        "label": "Gmail Refresh Token",
-        "type": "secret",
-        "description": "Gmail API refresh token",
-        "required": true
+        "section": "Gmail",
+        "fields": [
+          {
+            "key": "gmailClientId",
+            "label": "Gmail Client ID",
+            "type": "text",
+            "description": "Google Cloud OAuth 2.0 client ID",
+            "required": true
+          },
+          {
+            "key": "gmailClientSecret",
+            "label": "Gmail Client Secret",
+            "type": "secret",
+            "description": "Google Cloud OAuth 2.0 client secret",
+            "required": true
+          },
+          {
+            "key": "gmailRefreshToken",
+            "label": "Gmail Refresh Token",
+            "type": "secret",
+            "description": "Gmail API refresh token",
+            "required": true
+          }
+        ]
       }
     ]
   },
@@ -182,7 +190,9 @@
     "cortex": ">=1.0.0"
   },
   "aiDisclosure": {
-    "tools": ["Claude Code (Anthropic)"],
+    "tools": [
+      "Claude Code (Anthropic)"
+    ],
     "humanReview": true
   }
 }

@@ -3,6 +3,7 @@ import type { PluginContext, Tool, ToolCallResult, ToolContext } from './types.t
 let pluginConfig: Record<string, unknown> = {};
 
 export async function onLoad(ctx: PluginContext): Promise<void> {
+  ctx.logger.info(`[cortex-plugin-email] Loaded`);
   pluginConfig = await ctx.config.get() as Record<string, unknown>;
 }
 

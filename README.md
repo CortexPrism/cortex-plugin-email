@@ -1,11 +1,12 @@
 # CortexPrism Email Plugin
 
-Generic email integration for Cortex agents — send via SMTP, read via IMAP. Works with **Gmail**,
-**Outlook**, **Yahoo**, **ProtonMail** (Bridge), and any other email provider that supports
-SMTP/IMAP.
+Generic email integration for Cortex agents — send via SMTP, read via IMAP.
+Works with **Gmail**, **Outlook**, **Yahoo**, **ProtonMail** (Bridge), and any
+other email provider that supports SMTP/IMAP.
 
-> **Note:** Gmail-specific mail, calendar, drive, and docs tools are available in
-> `cortex-plugin-google`. This plugin focuses on generic email connectivity via standard protocols.
+> **Note:** Gmail-specific mail, calendar, drive, and docs tools are available
+> in `cortex-plugin-google`. This plugin focuses on generic email connectivity
+> via standard protocols.
 
 ## Features
 
@@ -66,8 +67,8 @@ Configure your SMTP and IMAP credentials in Cortex settings:
 | **ProtonMail Bridge** | `127.0.0.1`             | 1025           | `127.0.0.1`             | 1143      |
 | **iCloud Mail**       | `smtp.mail.me.com`      | 587 (STARTTLS) | `imap.mail.me.com`      | 993 (TLS) |
 
-**App Passwords:** Most providers require an app-specific password instead of your regular password.
-Check your provider's security settings.
+**App Passwords:** Most providers require an app-specific password instead of
+your regular password. Check your provider's security settings.
 
 ## Quick Start
 
@@ -133,7 +134,8 @@ Send an email via SMTP.
 
 ### email_draft
 
-Create a draft email preview (does not send). Returns the RFC 2822 formatted message for review.
+Create a draft email preview (does not send). Returns the RFC 2822 formatted
+message for review.
 
 **Parameters:**
 

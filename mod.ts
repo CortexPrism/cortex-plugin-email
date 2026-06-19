@@ -1,18 +1,67 @@
+/**
+ * CortexPrism Generic Email Plugin
+ *
+ * Send, receive, and manage emails via any SMTP/IMAP-compatible provider.
+ *
+ * Works with: Gmail, Outlook, Yahoo, ProtonMail (Bridge), custom SMTP/IMAP servers,
+ * and any other email provider that supports SMTP sending and IMAP reading.
+ *
+ * ## Configuration
+ *
+ * ```json
+ * {
+ *   "plugins": {
+ *     "cortex-plugin-email": {
+ *       "enabled": true,
+ *       "config": {
+ *         "smtpHost": "smtp.gmail.com",
+ *         "smtpPort": 587,
+ *         "smtpUser": "your.email@gmail.com",
+ *         "smtpPassword": "your-app-password",
+ *         "imapHost": "imap.gmail.com",
+ *         "imapPort": 993,
+ *         "imapUser": "your.email@gmail.com",
+ *         "imapPassword": "your-app-password",
+ *         "fromEmail": "your.email@gmail.com"
+ *       }
+ *     }
+ *   }
+ * }
+ * ```
+ */
+
 import type { PluginContext, Tool, ToolCallResult, ToolContext } from './types.ts';
+import { getSmtpConfig, sendEmail } from './smtp.ts';
+import { getEmail, getImapConfig, listEmails, searchEmails } from './imap.ts';
 
 let pluginConfig: Record<string, unknown> = {};
 
 export async function onLoad(ctx: PluginContext): Promise<void> {
-  ctx.logger.info(`[cortex-plugin-email] Loaded`);
-  pluginConfig = await ctx.config.get() as Record<string, unknown>;
+  await ctx.logger.info('[cortex-plugin-email] Loading generic email plugin');
+  pluginConfig = await ctx.config.get('email') as Record<string, unknown> || {};
+  await ctx.logger.info('[cortex-plugin-email] Loaded — supports any SMTP/IMAP provider');
 }
 
-export async function onUnload(_ctx: PluginContext): Promise<void> {}
+export function onUnload(_ctx: PluginContext): void {
+  // No cleanup needed
+}
+
+// ---------------------------------------------------------------------------
+// Utility
+// ---------------------------------------------------------------------------
+
+function durationMs(start: number): number {
+  return Date.now() - start;
+}
+
+// ---------------------------------------------------------------------------
+// email_list
+// ---------------------------------------------------------------------------
 
 const emailListTool: Tool = {
   definition: {
     name: 'email_list',
-    description: 'List emails',
+    description: 'List emails from the configured IMAP mailbox',
     params: [
       {
         name: 'max_results',
@@ -21,8 +70,18 @@ const emailListTool: Tool = {
         required: false,
         default: 20,
       },
-      { name: 'query', type: 'string', description: 'Gmail search query', required: false },
-      { name: 'label', type: 'string', description: 'Gmail label to filter by', required: false },
+      {
+        name: 'query',
+        type: 'string',
+        description: 'Search query (searches subject and from fields)',
+        required: false,
+      },
+      {
+        name: 'mailbox',
+        type: 'string',
+        description: 'IMAP mailbox/folder name (default: INBOX)',
+        required: false,
+      },
     ],
     capabilities: ['network:fetch'],
   },
@@ -31,7 +90,7 @@ const emailListTool: Tool = {
     try {
       const maxResults = (args.max_results as number) ?? 20;
       const query = args.query as string | undefined;
-      const label = args.label as string | undefined;
+      const mailbox = (args.mailbox as string) || undefined;
 
       if (typeof maxResults !== 'number' || maxResults < 1) {
         return {
@@ -39,51 +98,39 @@ const emailListTool: Tool = {
           success: false,
           output: '',
           error: 'max_results must be a positive number',
-          durationMs: Date.now() - start,
+          durationMs: durationMs(start),
         };
       }
 
-      const clientId = pluginConfig.gmailClientId as string;
-      const clientSecret = pluginConfig.gmailClientSecret as string;
-      const refreshToken = pluginConfig.gmailRefreshToken as string;
-
-      if (!clientId || !clientSecret || !refreshToken) {
+      let config;
+      try {
+        config = getImapConfig(pluginConfig);
+      } catch (e) {
         return {
           toolName: 'email_list',
           success: false,
           output: '',
-          error:
-            'Gmail API not configured. Set gmailClientId, gmailClientSecret, and gmailRefreshToken.',
-          durationMs: Date.now() - start,
+          error: e instanceof Error ? e.message : 'IMAP not configured',
+          durationMs: durationMs(start),
         };
       }
 
-      const params = new URLSearchParams();
-      params.set('maxResults', String(maxResults));
-      if (query) params.set('q', query);
-      if (label) params.set('labelIds', label);
-
-      const response = await fetch(
-        `https://gmail.googleapis.com/gmail/v1/users/me/messages?${params.toString()}`,
-        { headers: { Authorization: `Bearer ${refreshToken}` } },
-      );
-
-      if (!response.ok) {
+      if (query && query.trim()) {
+        const result = await searchEmails(config, query.trim(), { maxResults, mailbox });
         return {
           toolName: 'email_list',
-          success: false,
-          output: '',
-          error: `Gmail API error: ${response.status}`,
-          durationMs: Date.now() - start,
+          success: true,
+          output: JSON.stringify({ total: result.total, messages: result.messages }, null, 2),
+          durationMs: durationMs(start),
         };
       }
 
-      const data = await response.json();
+      const result = await listEmails(config, { maxResults, mailbox });
       return {
         toolName: 'email_list',
         success: true,
-        output: JSON.stringify(data),
-        durationMs: Date.now() - start,
+        output: JSON.stringify({ total: result.total, messages: result.messages }, null, 2),
+        durationMs: durationMs(start),
       };
     } catch (error) {
       return {
@@ -91,25 +138,40 @@ const emailListTool: Tool = {
         success: false,
         output: '',
         error: `Failed to list emails: ${error instanceof Error ? error.message : String(error)}`,
-        durationMs: Date.now() - start,
+        durationMs: durationMs(start),
       };
     }
   },
 };
 
+// ---------------------------------------------------------------------------
+// email_get
+// ---------------------------------------------------------------------------
+
 const emailGetTool: Tool = {
   definition: {
     name: 'email_get',
-    description: 'Get a specific email by ID',
+    description: 'Get a specific email by UID from the IMAP mailbox',
     params: [
-      { name: 'email_id', type: 'string', description: 'The email ID to retrieve', required: true },
+      {
+        name: 'email_id',
+        type: 'string',
+        description: 'Email UID to retrieve',
+        required: true,
+      },
       {
         name: 'format',
         type: 'string',
-        description: 'Email format to return',
+        description: 'Response format',
         required: false,
         enum: ['full', 'metadata', 'minimal'],
         default: 'full',
+      },
+      {
+        name: 'mailbox',
+        type: 'string',
+        description: 'IMAP mailbox/folder name (default: INBOX)',
+        required: false,
       },
     ],
     capabilities: ['network:fetch'],
@@ -124,7 +186,7 @@ const emailGetTool: Tool = {
           success: false,
           output: '',
           error: 'email_id is required',
-          durationMs: Date.now() - start,
+          durationMs: durationMs(start),
         };
       }
 
@@ -135,44 +197,83 @@ const emailGetTool: Tool = {
           success: false,
           output: '',
           error: 'format must be one of: full, metadata, minimal',
-          durationMs: Date.now() - start,
+          durationMs: durationMs(start),
         };
       }
 
-      const refreshToken = pluginConfig.gmailRefreshToken as string;
-      if (!refreshToken) {
+      const mailbox = (args.mailbox as string) || undefined;
+
+      let config;
+      try {
+        config = getImapConfig(pluginConfig);
+      } catch (e) {
         return {
           toolName: 'email_get',
           success: false,
           output: '',
-          error: 'Gmail API not configured',
-          durationMs: Date.now() - start,
+          error: e instanceof Error ? e.message : 'IMAP not configured',
+          durationMs: durationMs(start),
         };
       }
 
-      const response = await fetch(
-        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${
-          encodeURIComponent(emailId)
-        }?format=${format}`,
-        { headers: { Authorization: `Bearer ${refreshToken}` } },
-      );
-
-      if (!response.ok) {
+      const message = await getEmail(config, emailId, mailbox);
+      if (!message) {
         return {
           toolName: 'email_get',
           success: false,
           output: '',
-          error: `Gmail API error: ${response.status}`,
-          durationMs: Date.now() - start,
+          error: `Email not found: ${emailId}`,
+          durationMs: durationMs(start),
         };
       }
 
-      const data = await response.json();
+      if (format === 'minimal') {
+        return {
+          toolName: 'email_get',
+          success: true,
+          output: JSON.stringify(
+            {
+              uid: message.uid,
+              subject: message.subject,
+              from: message.from,
+              date: message.date,
+              flags: message.flags,
+            },
+            null,
+            2,
+          ),
+          durationMs: durationMs(start),
+        };
+      }
+
+      if (format === 'metadata') {
+        return {
+          toolName: 'email_get',
+          success: true,
+          output: JSON.stringify(
+            {
+              uid: message.uid,
+              subject: message.subject,
+              from: message.from,
+              to: message.to,
+              cc: message.cc,
+              date: message.date,
+              flags: message.flags,
+              headers: message.headers,
+            },
+            null,
+            2,
+          ),
+          durationMs: durationMs(start),
+        };
+      }
+
+      // Full format
       return {
         toolName: 'email_get',
         success: true,
-        output: JSON.stringify(data),
-        durationMs: Date.now() - start,
+        output: JSON.stringify(message, null, 2),
+        durationMs: durationMs(start),
       };
     } catch (error) {
       return {
@@ -180,22 +281,46 @@ const emailGetTool: Tool = {
         success: false,
         output: '',
         error: `Failed to get email: ${error instanceof Error ? error.message : String(error)}`,
-        durationMs: Date.now() - start,
+        durationMs: durationMs(start),
       };
     }
   },
 };
 
+// ---------------------------------------------------------------------------
+// email_send
+// ---------------------------------------------------------------------------
+
 const emailSendTool: Tool = {
   definition: {
     name: 'email_send',
-    description: 'Send an email',
+    description: 'Send an email via SMTP',
     params: [
-      { name: 'to', type: 'string', description: 'Recipient email address', required: true },
+      {
+        name: 'to',
+        type: 'string',
+        description: 'Recipient email address(es), comma-separated',
+        required: true,
+      },
       { name: 'subject', type: 'string', description: 'Email subject', required: true },
-      { name: 'body', type: 'string', description: 'Email body content', required: true },
-      { name: 'cc', type: 'string', description: 'CC recipients', required: false },
-      { name: 'bcc', type: 'string', description: 'BCC recipients', required: false },
+      {
+        name: 'body',
+        type: 'string',
+        description: 'Email body content (plain text or HTML)',
+        required: true,
+      },
+      {
+        name: 'cc',
+        type: 'string',
+        description: 'CC recipients, comma-separated',
+        required: false,
+      },
+      {
+        name: 'bcc',
+        type: 'string',
+        description: 'BCC recipients, comma-separated',
+        required: false,
+      },
       {
         name: 'is_html',
         type: 'boolean',
@@ -218,68 +343,44 @@ const emailSendTool: Tool = {
           toolName: 'email_send',
           success: false,
           output: '',
-          error: 'to, subject, and body are required',
-          durationMs: Date.now() - start,
+          error: 'to, subject, and body are all required',
+          durationMs: durationMs(start),
         };
       }
 
-      const refreshToken = pluginConfig.gmailRefreshToken as string;
-      if (!refreshToken) {
+      let config;
+      try {
+        config = getSmtpConfig(pluginConfig);
+      } catch (e) {
         return {
           toolName: 'email_send',
           success: false,
           output: '',
-          error: 'Gmail API not configured',
-          durationMs: Date.now() - start,
+          error: e instanceof Error ? e.message : 'SMTP not configured',
+          durationMs: durationMs(start),
         };
       }
 
-      const isHtml = (args.is_html as boolean) ?? false;
+      const isHtml = args.is_html === true;
       const cc = args.cc as string | undefined;
       const bcc = args.bcc as string | undefined;
 
-      const emailParts = [
-        `From: me`,
-        `To: ${to}`,
-        `Subject: ${subject}`,
-      ];
-      if (cc) emailParts.push(`Cc: ${cc}`);
-      if (bcc) emailParts.push(`Bcc: ${bcc}`);
-      emailParts.push(
-        'Content-Type: ' + (isHtml ? 'text/html; charset=utf-8' : 'text/plain; charset=utf-8'),
-      );
-      emailParts.push('MIME-Version: 1.0');
-      emailParts.push('');
-      emailParts.push(body);
+      const msgId = await sendEmail(config, to, subject, body, { cc, bcc, isHtml });
 
-      const raw = btoa(unescape(encodeURIComponent(emailParts.join('\r\n'))))
-        .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-
-      const response = await fetch(
-        'https://gmail.googleapis.com/gmail/v1/users/me/messages/send',
-        {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${refreshToken}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ raw }),
-        },
-      );
-
-      if (!response.ok) {
-        return {
-          toolName: 'email_send',
-          success: false,
-          output: '',
-          error: `Gmail API error: ${response.status}`,
-          durationMs: Date.now() - start,
-        };
-      }
-
-      const data = await response.json();
       return {
         toolName: 'email_send',
         success: true,
-        output: JSON.stringify(data),
-        durationMs: Date.now() - start,
+        output: JSON.stringify(
+          {
+            messageId: msgId,
+            to,
+            subject,
+            sent: true,
+          },
+          null,
+          2,
+        ),
+        durationMs: durationMs(start),
       };
     } catch (error) {
       return {
@@ -287,24 +388,36 @@ const emailSendTool: Tool = {
         success: false,
         output: '',
         error: `Failed to send email: ${error instanceof Error ? error.message : String(error)}`,
-        durationMs: Date.now() - start,
+        durationMs: durationMs(start),
       };
     }
   },
 };
 
+// ---------------------------------------------------------------------------
+// email_draft
+// ---------------------------------------------------------------------------
+
 const emailDraftTool: Tool = {
   definition: {
     name: 'email_draft',
-    description: 'Create a draft email',
+    description: 'Create a draft email (returns the RFC 2822 message for review; does not send)',
     params: [
-      { name: 'to', type: 'string', description: 'Recipient email address', required: true },
+      { name: 'to', type: 'string', description: 'Recipient email address(es)', required: true },
       { name: 'subject', type: 'string', description: 'Email subject', required: true },
       { name: 'body', type: 'string', description: 'Email body content', required: true },
+      { name: 'cc', type: 'string', description: 'CC recipients', required: false },
+      {
+        name: 'is_html',
+        type: 'boolean',
+        description: 'Whether body is HTML',
+        required: false,
+        default: false,
+      },
     ],
-    capabilities: ['network:fetch'],
+    capabilities: [],
   },
-  execute: async (args: Record<string, unknown>, _ctx: ToolContext): Promise<ToolCallResult> => {
+  execute: (args: Record<string, unknown>, _ctx: ToolContext): Promise<ToolCallResult> => {
     const start = Date.now();
     try {
       const to = args.to as string;
@@ -312,87 +425,88 @@ const emailDraftTool: Tool = {
       const body = args.body as string;
 
       if (!to || !subject || !body) {
-        return {
+        return Promise.resolve({
           toolName: 'email_draft',
           success: false,
           output: '',
-          error: 'to, subject, and body are required',
-          durationMs: Date.now() - start,
-        };
+          error: 'to, subject, and body are all required',
+          durationMs: durationMs(start),
+        });
       }
 
-      const refreshToken = pluginConfig.gmailRefreshToken as string;
-      if (!refreshToken) {
-        return {
-          toolName: 'email_draft',
-          success: false,
-          output: '',
-          error: 'Gmail API not configured',
-          durationMs: Date.now() - start,
-        };
-      }
+      const isHtml = args.is_html === true;
+      const cc = args.cc as string | undefined;
+      const contentType = isHtml ? 'text/html; charset=utf-8' : 'text/plain; charset=utf-8';
 
-      const emailParts = [
-        `From: me`,
+      const fromEmail = (pluginConfig.fromEmail as string) || pluginConfig.smtpUser as string ||
+        'draft@local';
+
+      // Build RFC 2822 draft
+      const headers: string[] = [
+        `From: ${fromEmail}`,
         `To: ${to}`,
         `Subject: ${subject}`,
-        'Content-Type: text/plain; charset=utf-8',
-        'MIME-Version: 1.0',
-        '',
-        body,
+        `MIME-Version: 1.0`,
+        `Content-Type: ${contentType}`,
+        `Date: ${new Date().toUTCString()}`,
+        `Message-ID: <draft.${Date.now()}.${Math.random().toString(36).slice(2)}@local>`,
+        `X-Cortex-Draft: true`,
       ];
+      if (cc) headers.push(`Cc: ${cc}`);
 
-      const raw = btoa(unescape(encodeURIComponent(emailParts.join('\r\n'))))
-        .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      const draft = headers.join('\r\n') + '\r\n\r\n' + body;
 
-      const response = await fetch(
-        'https://gmail.googleapis.com/gmail/v1/users/me/drafts',
-        {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${refreshToken}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: { raw } }),
-        },
-      );
-
-      if (!response.ok) {
-        return {
-          toolName: 'email_draft',
-          success: false,
-          output: '',
-          error: `Gmail API error: ${response.status}`,
-          durationMs: Date.now() - start,
-        };
-      }
-
-      const data = await response.json();
-      return {
+      return Promise.resolve({
         toolName: 'email_draft',
         success: true,
-        output: JSON.stringify(data),
-        durationMs: Date.now() - start,
-      };
+        output: JSON.stringify(
+          {
+            draft: true,
+            to,
+            subject,
+            cc: cc || null,
+            isHtml,
+            rfc2822: draft,
+            note: 'This is a draft preview. Use email_send to send.',
+          },
+          null,
+          2,
+        ),
+        durationMs: durationMs(start),
+      });
     } catch (error) {
-      return {
+      return Promise.resolve({
         toolName: 'email_draft',
         success: false,
         output: '',
         error: `Failed to create draft: ${error instanceof Error ? error.message : String(error)}`,
-        durationMs: Date.now() - start,
-      };
+        durationMs: durationMs(start),
+      });
     }
   },
 };
 
+// ---------------------------------------------------------------------------
+// email_summarize_thread
+// ---------------------------------------------------------------------------
+
 const emailSummarizeThreadTool: Tool = {
   definition: {
     name: 'email_summarize_thread',
-    description: 'Summarize an email thread',
+    description:
+      'Fetch all emails in a thread by searching for related messages (by subject similarity)',
     params: [
       {
         name: 'thread_id',
         type: 'string',
-        description: 'The thread ID to summarize',
+        description: 'Thread identifier (email Message-ID or subject search term)',
         required: true,
+      },
+      {
+        name: 'mailbox',
+        type: 'string',
+        description: 'IMAP mailbox/folder name (default: INBOX)',
+        required: false,
       },
     ],
     capabilities: ['network:fetch'],
@@ -407,54 +521,75 @@ const emailSummarizeThreadTool: Tool = {
           success: false,
           output: '',
           error: 'thread_id is required',
-          durationMs: Date.now() - start,
+          durationMs: durationMs(start),
         };
       }
 
-      const refreshToken = pluginConfig.gmailRefreshToken as string;
-      if (!refreshToken) {
+      const mailbox = (args.mailbox as string) || undefined;
+
+      let config;
+      try {
+        config = getImapConfig(pluginConfig);
+      } catch (e) {
         return {
           toolName: 'email_summarize_thread',
           success: false,
           output: '',
-          error: 'Gmail API not configured',
-          durationMs: Date.now() - start,
+          error: e instanceof Error ? e.message : 'IMAP not configured',
+          durationMs: durationMs(start),
         };
       }
 
-      const response = await fetch(
-        `https://gmail.googleapis.com/gmail/v1/users/me/threads/${encodeURIComponent(threadId)}`,
-        { headers: { Authorization: `Bearer ${refreshToken}` } },
-      );
+      // Search for messages related to this thread ID (by subject or message-id)
+      const result = await searchEmails(config, threadId, { maxResults: 50, mailbox });
 
-      if (!response.ok) {
+      if (result.messages.length === 0) {
         return {
           toolName: 'email_summarize_thread',
-          success: false,
-          output: '',
-          error: `Gmail API error: ${response.status}`,
-          durationMs: Date.now() - start,
+          success: true,
+          output: JSON.stringify(
+            {
+              threadId,
+              messageCount: 0,
+              summary: 'No messages found matching this thread identifier.',
+            },
+            null,
+            2,
+          ),
+          durationMs: durationMs(start),
         };
       }
 
-      const data = await response.json();
-      const messages = data.messages || [];
-      const subjects = messages.map((m: Record<string, unknown>) => {
-        const headers =
-          (m.payload as Record<string, unknown>)?.headers as Array<Record<string, string>> || [];
-        const subject = headers.find((h) => h.name === 'Subject');
-        return subject?.value || '(no subject)';
-      });
+      // Build a summary
+      const subjects = [...new Set(result.messages.map((m) => m.subject))];
+      const participants = [...new Set(result.messages.map((m) => m.from))];
 
-      const summary = `Thread contains ${messages.length} messages. Subjects: ${
-        subjects.join(' | ')
-      }`;
+      const summary = {
+        threadId,
+        messageCount: result.total,
+        messagesShown: result.messages.length,
+        subjects,
+        participants,
+        dateRange: result.messages.length > 0
+          ? {
+            earliest: result.messages[result.messages.length - 1]?.date || 'unknown',
+            latest: result.messages[0]?.date || 'unknown',
+          }
+          : null,
+        messages: result.messages.map((m) => ({
+          uid: m.uid,
+          from: m.from,
+          subject: m.subject,
+          date: m.date,
+          flags: m.flags,
+        })),
+      };
 
       return {
         toolName: 'email_summarize_thread',
         success: true,
-        output: summary,
-        durationMs: Date.now() - start,
+        output: JSON.stringify(summary, null, 2),
+        durationMs: durationMs(start),
       };
     } catch (error) {
       return {
@@ -464,22 +599,32 @@ const emailSummarizeThreadTool: Tool = {
         error: `Failed to summarize thread: ${
           error instanceof Error ? error.message : String(error)
         }`,
-        durationMs: Date.now() - start,
+        durationMs: durationMs(start),
       };
     }
   },
 };
 
+// ---------------------------------------------------------------------------
+// email_extract_actions
+// ---------------------------------------------------------------------------
+
 const emailExtractActionsTool: Tool = {
   definition: {
     name: 'email_extract_actions',
-    description: 'Extract action items from emails',
+    description: 'Extract action items from email bodies',
     params: [
       {
         name: 'email_ids',
         type: 'string',
-        description: 'Comma-separated email IDs',
+        description: 'Comma-separated email UIDs to analyze',
         required: true,
+      },
+      {
+        name: 'mailbox',
+        type: 'string',
+        description: 'IMAP mailbox/folder name (default: INBOX)',
+        required: false,
       },
     ],
     capabilities: ['network:fetch'],
@@ -494,18 +639,22 @@ const emailExtractActionsTool: Tool = {
           success: false,
           output: '',
           error: 'email_ids is required',
-          durationMs: Date.now() - start,
+          durationMs: durationMs(start),
         };
       }
 
-      const refreshToken = pluginConfig.gmailRefreshToken as string;
-      if (!refreshToken) {
+      const mailbox = (args.mailbox as string) || undefined;
+
+      let config;
+      try {
+        config = getImapConfig(pluginConfig);
+      } catch (e) {
         return {
           toolName: 'email_extract_actions',
           success: false,
           output: '',
-          error: 'Gmail API not configured',
-          durationMs: Date.now() - start,
+          error: e instanceof Error ? e.message : 'IMAP not configured',
+          durationMs: durationMs(start),
         };
       }
 
@@ -517,23 +666,47 @@ const emailExtractActionsTool: Tool = {
           success: false,
           output: '',
           error: 'No valid email IDs provided',
-          durationMs: Date.now() - start,
+          durationMs: durationMs(start),
         };
       }
 
       const results: string[] = [];
       for (const id of ids) {
-        const response = await fetch(
-          `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(id)}`,
-          { headers: { Authorization: `Bearer ${refreshToken}` } },
-        );
+        try {
+          const message = await getEmail(config, id, mailbox);
+          if (message) {
+            const snippet = message.snippet || '(no content)';
+            const actionItems: string[] = [];
 
-        if (response.ok) {
-          const data = await response.json();
-          const snippet = data.snippet || '';
-          if (snippet) {
-            results.push(`[${id}]: ${snippet}`);
+            // Basic heuristic: look for action-oriented phrases
+            const body = message.body || '';
+            const lines = body.split('\n');
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (
+                /please\s+\w+/i.test(trimmed) ||
+                /could you/i.test(trimmed) ||
+                /can you/i.test(trimmed) ||
+                /need to/i.test(trimmed) ||
+                /action\s*[:：]/i.test(trimmed) ||
+                /todo/i.test(trimmed) ||
+                /follow.up/i.test(trimmed) ||
+                /remind/i.test(trimmed)
+              ) {
+                actionItems.push(trimmed.slice(0, 150));
+              }
+            }
+
+            results.push(
+              `[${id}] From: ${message.from} | Subject: ${message.subject}\n` +
+                `  Snippet: ${snippet}\n` +
+                (actionItems.length > 0
+                  ? `  Potential action items:\n    - ${actionItems.join('\n    - ')}\n`
+                  : ''),
+            );
           }
+        } catch {
+          results.push(`[${id}]: Failed to fetch`);
         }
       }
 
@@ -542,16 +715,15 @@ const emailExtractActionsTool: Tool = {
           toolName: 'email_extract_actions',
           success: true,
           output: 'No action items found in the specified emails.',
-          durationMs: Date.now() - start,
+          durationMs: durationMs(start),
         };
       }
 
-      const output = results.map((r, i) => `${i + 1}. ${r}`).join('\n');
       return {
         toolName: 'email_extract_actions',
         success: true,
-        output,
-        durationMs: Date.now() - start,
+        output: results.join('\n---\n'),
+        durationMs: durationMs(start),
       };
     } catch (error) {
       return {
@@ -561,11 +733,15 @@ const emailExtractActionsTool: Tool = {
         error: `Failed to extract actions: ${
           error instanceof Error ? error.message : String(error)
         }`,
-        durationMs: Date.now() - start,
+        durationMs: durationMs(start),
       };
     }
   },
 };
+
+// ---------------------------------------------------------------------------
+// Export
+// ---------------------------------------------------------------------------
 
 export const tools: Tool[] = [
   emailListTool,

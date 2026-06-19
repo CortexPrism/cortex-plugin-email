@@ -57,6 +57,19 @@ export interface Tool {
 }
 
 // ---------------------------------------------------------------------------
+// Email connection types
+// ---------------------------------------------------------------------------
+
+/** SMTP or IMAP connection parameters */
+export interface EmailConnectionConfig {
+  host: string;
+  port: number;
+  user: string;
+  password: string;
+  fromEmail: string;
+}
+
+// ---------------------------------------------------------------------------
 // Store interfaces
 // ---------------------------------------------------------------------------
 

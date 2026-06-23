@@ -30,12 +30,7 @@
  * ```
  */
 
-import type {
-  PluginContext,
-  Tool,
-  ToolCallResult,
-  ToolContext,
-} from "./types.ts";
+import type { PluginContext, Tool, ToolCallResult } from "cortex/plugins";
 import { getSmtpConfig, sendEmail } from "./smtp.ts";
 import { getEmail, getImapConfig, listEmails, searchEmails } from "./imap.ts";
 
@@ -94,7 +89,7 @@ const emailListTool: Tool = {
   },
   execute: async (
     args: Record<string, unknown>,
-    _ctx: ToolContext,
+    _ctx: PluginContext,
   ): Promise<ToolCallResult> => {
     const start = Date.now();
     try {
@@ -201,7 +196,7 @@ const emailGetTool: Tool = {
   },
   execute: async (
     args: Record<string, unknown>,
-    _ctx: ToolContext,
+    _ctx: PluginContext,
   ): Promise<ToolCallResult> => {
     const start = Date.now();
     try {
@@ -366,7 +361,7 @@ const emailSendTool: Tool = {
   },
   execute: async (
     args: Record<string, unknown>,
-    _ctx: ToolContext,
+    _ctx: PluginContext,
   ): Promise<ToolCallResult> => {
     const start = Date.now();
     try {
@@ -482,7 +477,7 @@ const emailDraftTool: Tool = {
   },
   execute: (
     args: Record<string, unknown>,
-    _ctx: ToolContext,
+    _ctx: PluginContext,
   ): Promise<ToolCallResult> => {
     const start = Date.now();
     try {
@@ -587,7 +582,7 @@ const emailSummarizeThreadTool: Tool = {
   },
   execute: async (
     args: Record<string, unknown>,
-    _ctx: ToolContext,
+    _ctx: PluginContext,
   ): Promise<ToolCallResult> => {
     const start = Date.now();
     try {
@@ -712,7 +707,7 @@ const emailExtractActionsTool: Tool = {
   },
   execute: async (
     args: Record<string, unknown>,
-    _ctx: ToolContext,
+    _ctx: PluginContext,
   ): Promise<ToolCallResult> => {
     const start = Date.now();
     try {
